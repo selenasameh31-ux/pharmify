@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return signedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // نفس القايمة الموجودة في lib/firebase_options.dart (kAdminEmails)
+    function isAdminEmail() {
+      return request.auth.token.email in ['selenasameh31@gmail.com'];
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid == uid &&
+        (request.resource.data.role == 'rep' || isAdminEmail());
+      allow update: if isAdmin();
+    }
+
+    // قوائم مشتركة: أي مستخدم مسجل يقرا، بس الأدمن بس اللي يضيف ويعدل ويحذف
+    // (حماية الكتالوج المشترك من تعديلات أي مندوب بالغلط)
+    match /doctors/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if isAdmin() || isAdminEmail();
+    }
+    match /medicines/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin() || isAdminEmail();
+    }
+
+    // المندوب يشوف طلبياته بس ويعدلها، والأدمن يشوف ويعدل الكل
+    // (ملحوظة: حقل pending في الطلب بيعلّم حالة المزامنة مش حالة الطلب، عشان كده مبناش عليه)
+    match /orders/{id} {
+      allow read: if signedIn() && (resource.data.repId == request.auth.uid || isAdmin() || isAdminEmail());
+      allow create: if signedIn() && request.resource.data.repId == request.auth.uid;
+      allow update: if isAdmin() || isAdminEmail() ||
+        (signedIn() && resource.data.repId == request.auth.uid
+          && request.resource.data.repId == resource.data.repId);
+      allow delete: if isAdmin() || isAdminEmail() ||
+        (signedIn() && resource.data.repId == request.auth.uid);
+    }
+  }
+}
